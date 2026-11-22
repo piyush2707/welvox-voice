@@ -1,6 +1,7 @@
 <p align="center"><b>Designed by Piyush Joshi</b></p>
 
 <h1 align="center">Welvox Voice</h1>
+
 <p align="center">
   <img src="assets/home.png" alt="Welvox Voice home screen" width="320">
 </p>
