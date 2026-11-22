@@ -3,7 +3,7 @@
 <h1 align="center">Welvox Voice</h1>
 
 <p align="center">
-  <img src="assets/home.png" alt="Welvox Voice home screen" width="320">
+  <img src="assets/home.png" 
 </p>
 
 <p align="center"><b>Speak it. We’ll write it.</b><br>
