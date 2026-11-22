@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welvox Voice</title>
+<style>
+  body{font-family:sans-serif;background:#111;color:#fff;text-align:center;padding:24px;margin:0}
+  h1{margin:8px 0 20px}
+  select,button,textarea{font-size:18px;border-radius:12px;border:none;padding:12px;width:100%;max-width:420px;margin:8px 0;box-sizing:border-box}
+  #mic{width:120px;height:120px;border-radius:50%;background:#ff6b1a;color:#fff;font-size:44px}
+  #mic.rec{background:#d00;animation:p 1s infinite}
+  @keyframes p{50%{transform:scale(1.08)}}
+  textarea{height:160px;background:#222;color:#fff}
+  #copy{background:#333;color:#fff}
+</style>
+</head>
+<body>
+<h1>Welvox Voice</h1>
+<select id="mode">
+  <option value="english">English</option>
+  <option value="hinglish">Hinglish</option>
+  <option value="hindi">Hindi</option>
+</select><br>
+<button id="mic">🎤</button>
+<p id="status">Tap to start</p>
+<textarea id="out" placeholder="Your text appears here"></textarea><br>
+<button id="copy">Copy text</button>
+<script>
+const API = "https://welvox-voice.onrender.com/dictate";
+let rec, chunks = [], on = false;
+const mic = document.getElementById("mic"), st = document.getElementById("status"), out = document.getElementById("out");
+
+mic.onclick = async () => {
+  if (!on) {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    rec = new MediaRecorder(stream); chunks = [];
+    rec.ondataavailable = e => chunks.push(e.data);
+    rec.onstop = send;
+    rec.start(); on = true;
+    mic.classList.add("rec"); st.textContent = "Listening... tap to stop";
+  } else {
+    rec.stop(); rec.stream.getTracks().forEach(t => t.stop());
+    on = false; mic.classList.remove("rec"); st.textContent = "Processing...";
+  }
+};
+
+async function send() {
+  const fd = new FormData();
+  fd.append("file", new Blob(chunks, {type: rec.mimeType}), "audio.webm");
+  fd.append("mode", document.getElementById("mode").value);
+  try {
+    const r = await fetch(API, {method:"POST", body:fd});
+    const d = await r.json();
+    out.value = d.clean; st.textContent = "Done";
+  } catch (e) { st.textContent = "Error: " + e.message; }
+}
+
+document.getElementById("copy").onclick = () => {
+  navigator.clipboard.writeText(out.value); st.textContent = "Copied";
+};
+</script>
+</body>
+</html>
