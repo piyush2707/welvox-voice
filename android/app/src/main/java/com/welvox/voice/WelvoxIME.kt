@@ -13,6 +13,7 @@ import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.LinearLayout
@@ -26,6 +27,13 @@ import java.util.concurrent.Executors
 
 const val BASE_URL = "https://welvox-voice.onrender.com"
 val LANGS = listOf("hinglish" to "Hinglish", "english" to "English", "hindi" to "हिन्दी")
+val TEMPLATES = listOf(
+    "" to "Plain",
+    "whatsapp" to "WhatsApp",
+    "email" to "Email",
+    "linkedin" to "LinkedIn",
+    "notes" to "Notes"
+)
 
 class WelvoxIME : InputMethodService() {
     private val ui = Handler(Looper.getMainLooper())
@@ -36,28 +44,31 @@ class WelvoxIME : InputMethodService() {
     private var heard = false
     private var lastVoice = 0L
     private var startedAt = 0L
+    private var lastText = ""
     private lateinit var status: TextView
     private lateinit var mic: Button
     private lateinit var modeBtn: Button
+    private lateinit var tplBtn: Button
 
     private fun prefs() = getSharedPreferences("welvox", MODE_PRIVATE)
     private fun langIndex() = prefs().getInt("lang", 0).coerceIn(0, LANGS.size - 1)
+    private fun tplIndex() = prefs().getInt("tpl", 0).coerceIn(0, TEMPLATES.size - 1)
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun circle(c: String) = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(Color.parseColor(c))
     }
 
-    private fun chip(t: String, onClick: () -> Unit) = Button(this).apply {
+    private fun chip(t: String, size: Float, onClick: () -> Unit) = Button(this).apply {
         text = t
         isAllCaps = false
-        textSize = 16f
+        textSize = size
         minWidth = 0
         minHeight = 0
         setPadding(0, 0, 0, 0)
         setTextColor(Color.parseColor("#E9DCC6"))
         background = GradientDrawable().apply {
-            cornerRadius = dp(16).toFloat()
+            cornerRadius = dp(14).toFloat()
             setColor(Color.parseColor("#3A2518"))
         }
         setOnClickListener { onClick() }
@@ -84,20 +95,21 @@ class WelvoxIME : InputMethodService() {
             background = circle("#C8854A")
             setOnClickListener { toggle() }
         }
-        modeBtn = chip(LANGS[langIndex()].second) { cycleLang() }
+        modeBtn = chip(LANGS[langIndex()].second, 12f) { cycleLang() }
+        tplBtn = chip(TEMPLATES[tplIndex()].second, 12f) { cycleTpl() }
 
-        val row = LinearLayout(this).apply {
+        val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        fun add(v: View, w: Int, h: Int) = row.addView(
-            v, LinearLayout.LayoutParams(dp(w), dp(h)).apply { setMargins(dp(4), 0, dp(4), 0) }
+        fun addTop(v: View, w: Float) = top.addView(
+            v, LinearLayout.LayoutParams(0, dp(46), w).apply { setMargins(dp(3), 0, dp(3), 0) }
         )
-        add(chip("🌐") { pickKeyboard() }, 54, 54)
-        add(modeBtn, 88, 54)
-        add(mic, 76, 76)
-        add(chip("⌫") { currentInputConnection?.deleteSurroundingText(1, 0) }, 54, 54)
-        add(chip("⏎") { sendEnter() }, 54, 54)
+        addTop(chip("🌐", 18f) { pickKeyboard() }, 1f)
+        addTop(modeBtn, 1.7f)
+        addTop(tplBtn, 1.7f)
+        addTop(chip("⌫", 18f) { currentInputConnection?.deleteSurroundingText(1, 0) }, 1f)
+        addTop(chip("⏎", 18f) { sendEnter() }, 1f)
 
         root.addView(
             status,
@@ -106,8 +118,20 @@ class WelvoxIME : InputMethodService() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(10) }
         )
-        root.addView(row)
+        root.addView(top)
+        root.addView(
+            mic,
+            LinearLayout.LayoutParams(dp(76), dp(76)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(12)
+            }
+        )
         return root
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        if (!restarting) lastText = ""
     }
 
     private fun pickKeyboard() {
@@ -121,6 +145,11 @@ class WelvoxIME : InputMethodService() {
     private fun cycleLang() {
         prefs().edit().putInt("lang", (langIndex() + 1) % LANGS.size).apply()
         modeBtn.text = LANGS[langIndex()].second
+    }
+
+    private fun cycleTpl() {
+        prefs().edit().putInt("tpl", (tplIndex() + 1) % TEMPLATES.size).apply()
+        tplBtn.text = TEMPLATES[tplIndex()].second
     }
 
     private fun toggle() {
@@ -198,9 +227,12 @@ class WelvoxIME : InputMethodService() {
         }
         status.text = "Cleaning up your words…"
         val lang = LANGS[langIndex()].first
+        val tpl = TEMPLATES[tplIndex()].first
+        val vocab = prefs().getString("vocab", "") ?: ""
+        val prev = lastText
         pool.execute {
             val result = try {
-                upload(f, lang)
+                upload(f, lang, tpl, vocab, prev)
             } catch (e: Exception) {
                 "ERR:Couldn’t reach the server. It may be waking up. Try again."
             }
@@ -210,17 +242,31 @@ class WelvoxIME : InputMethodService() {
     }
 
     private fun handle(result: String) {
-        if (result.startsWith("ERR:")) {
-            status.text = result.removePrefix("ERR:")
-        } else if (result.isBlank()) {
-            status.text = "Didn’t catch that. Try again."
-        } else {
-            currentInputConnection?.commitText("$result ", 1)
-            status.text = "Done. Tap the mic to speak again."
+        val ic = currentInputConnection
+        when {
+            result.startsWith("ERR:") -> status.text = result.removePrefix("ERR:")
+            result.startsWith("CMD:") -> {
+                val text = result.removePrefix("CMD:")
+                val old = "$lastText "
+                if (lastText.isNotEmpty() &&
+                    ic?.getTextBeforeCursor(old.length, 0)?.toString() == old
+                ) {
+                    ic?.deleteSurroundingText(old.length, 0)
+                }
+                ic?.commitText("$text ", 1)
+                lastText = text
+                status.text = "Command applied"
+            }
+            result.isBlank() -> status.text = "Didn’t catch that. Try again."
+            else -> {
+                ic?.commitText("$result ", 1)
+                lastText = result
+                status.text = "Done. Tap the mic to speak again."
+            }
         }
     }
 
-    private fun upload(f: File, lang: String): String {
+    private fun upload(f: File, lang: String, tpl: String, vocab: String, prev: String): String {
         val boundary = "----welvox" + System.currentTimeMillis()
         val c = URL("$BASE_URL/dictate").openConnection() as HttpURLConnection
         c.requestMethod = "POST"
@@ -229,9 +275,16 @@ class WelvoxIME : InputMethodService() {
         c.readTimeout = 90000
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         DataOutputStream(c.outputStream).use { o ->
-            o.writeBytes("--$boundary\r\nContent-Disposition: form-data; name=\"mode\"\r\n\r\n")
-            o.write(lang.toByteArray())
-            o.writeBytes("\r\n--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n")
+            fun field(n: String, v: String) {
+                o.writeBytes("--$boundary\r\nContent-Disposition: form-data; name=\"$n\"\r\n\r\n")
+                o.write(v.toByteArray(Charsets.UTF_8))
+                o.writeBytes("\r\n")
+            }
+            field("mode", lang)
+            field("template", tpl)
+            field("vocab", vocab.take(400))
+            field("prev", prev.take(4000))
+            o.writeBytes("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n")
             o.write(f.readBytes())
             o.writeBytes("\r\n--$boundary--\r\n")
         }
@@ -241,7 +294,9 @@ class WelvoxIME : InputMethodService() {
             val d = try { JSONObject(body).getString("detail") } catch (e: Exception) { "Server error $code" }
             return "ERR:$d"
         }
-        return JSONObject(body).getString("clean").trim()
+        val j = JSONObject(body)
+        val clean = j.getString("clean").trim()
+        return if (j.optBoolean("command", false)) "CMD:$clean" else clean
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
