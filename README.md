@@ -1,6 +1,7 @@
 <p align="center"><b>Designed by Piyush Joshi</b></p>
 
 <h1 align="center">Welvox Voice</h1>
+
 ![Welvox Voice home screen](assets/home.png)
 
 <p align="center"><b>Speak it. We’ll write it.</b><br>
