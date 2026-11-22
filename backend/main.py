@@ -28,6 +28,25 @@ MODES = {
     "hindi": "Rewrite this dictation as clean Hindi in Devanagari script. Remove filler words and fix grammar.",
 }
 
+TEMPLATES = {
+    "whatsapp": "Format the result as a short, friendly WhatsApp message.",
+    "email": "Format the result as a polite email with a subject line, a greeting and a sign-off.",
+    "linkedin": "Format the result as an engaging LinkedIn post with short paragraphs.",
+    "notes": "Format the result as clear meeting notes with bullet points and action items.",
+}
+
+STYLES = {
+    "shorter": "Make this text shorter while keeping the meaning.",
+    "formal": "Rewrite this text in a formal, professional tone.",
+    "casual": "Rewrite this text in a relaxed, casual tone.",
+    "bullets": "Turn this text into clear bullet points.",
+    "hinglish": "Rewrite this text as natural Hinglish (Hindi written in Roman letters mixed with English).",
+    "english": "Rewrite this text as clean, natural English.",
+    "hindi": "Rewrite this text as clean Hindi in Devanagari script.",
+}
+
+TRIGGERS = ("hey welvox", "ok welvox", "okay welvox", "welvox")
+
 usage = defaultdict(lambda: [0, ""])  # ip -> [count today, day]
 
 
@@ -42,6 +61,20 @@ def check_limit(request: Request):
     rec[0] += 1
 
 
+def ask(system: str, user: str) -> str:
+    try:
+        return client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        ).choices[0].message.content
+    except Exception as e:
+        print("GROQ ERROR:", repr(e), flush=True)
+        raise HTTPException(502, "The speech service had a problem. Please try again.")
+
+
 @app.get("/")
 def home():
     return {"status": "Welvox Voice is running"}
@@ -53,6 +86,8 @@ async def dictate(
     file: UploadFile,
     mode: str = Form("english"),
     vocab: str = Form(""),
+    template: str = Form(""),
+    prev: str = Form(""),
 ):
     check_limit(request)
     audio = await file.read()
@@ -64,28 +99,50 @@ async def dictate(
     words = [w.strip() for w in vocab.split(",") if w.strip()][:40]
     stt_args = {"prompt": "Names and terms: " + ", ".join(words) + "."} if words else {}
 
-    system = MODES.get(mode, MODES["english"])
-    if words:
-        system += " Spell these names and terms exactly as given whenever they appear: " + ", ".join(words) + "."
-
     try:
         raw = client.audio.transcriptions.create(
             file=(file.filename or "audio.webm", audio),
             model=STT_MODEL,
             **stt_args,
         ).text
-        clean = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system + " Return only the final text."},
-                {"role": "user", "content": raw},
-            ],
-        ).choices[0].message.content
     except Exception as e:
         print("GROQ ERROR:", repr(e), flush=True)
         raise HTTPException(502, "The speech service had a problem. Please try again.")
 
+    # Voice command: "Hey Welvox, make this formal" applies to the previous result
+    low = raw.lower().strip(" ,.!")
+    trig = next((t for t in TRIGGERS if low.startswith(t)), None)
+    if trig and prev.strip():
+        instruction = raw.strip()[len(trig):].strip(" ,.:!")
+        if instruction:
+            clean = ask(
+                "Apply the spoken instruction to the text. Return only the resulting text.",
+                "Text:\n" + prev[:4000] + "\n\nInstruction: " + instruction,
+            )
+            return {"raw": raw, "clean": clean, "command": True}
+
+    system = MODES.get(mode, MODES["english"])
+    if template in TEMPLATES:
+        system += " " + TEMPLATES[template]
+    if words:
+        system += " Spell these names and terms exactly as given whenever they appear: " + ", ".join(words) + "."
+    clean = ask(system + " Return only the final text.", raw)
     return {"raw": raw, "clean": clean}
+
+
+class Rewrite(BaseModel):
+    text: str
+    style: str
+
+
+@app.post("/rewrite")
+async def rewrite(r: Rewrite, request: Request):
+    if r.style not in STYLES:
+        raise HTTPException(400, "Unknown style.")
+    if not r.text.strip() or len(r.text) > 4000:
+        raise HTTPException(400, "The text is empty or too long.")
+    check_limit(request)
+    return {"clean": ask(STYLES[r.style] + " Return only the final text.", r.text)}
 
 
 class Feedback(BaseModel):
