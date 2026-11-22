@@ -2,7 +2,7 @@
 
 <h1 align="center">Welvox Voice</h1>
 
-![Welvox Voice home screen](assets/home.png)
+![Welvox Voice home screen](assets/home.jpg)
 
 <p align="center"><b>Speak it. We’ll write it.</b><br>
 Hinglish, English and Hindi speech, turned into clean text you can paste anywhere.</p>
