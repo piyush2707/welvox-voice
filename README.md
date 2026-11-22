@@ -1,10 +1,7 @@
 <p align="center"><b>Designed by Piyush Joshi</b></p>
 
 <h1 align="center">Welvox Voice</h1>
-
-<p align="center">
-  <img src="assets/home.png" 
-</p>
+![Welvox Voice home screen](assets/home.png)
 
 <p align="center"><b>Speak it. We’ll write it.</b><br>
 Hinglish, English and Hindi speech, turned into clean text you can paste anywhere.</p>
