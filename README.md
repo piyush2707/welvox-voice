@@ -205,6 +205,9 @@ Ideas and feedback are welcome. Open an issue or message me on LinkedIn.
 ## Author
 
 **Designed by Piyush Joshi**, founder of Welvox.
+## License
+
+Released under the [MIT License](LICENSE).
 
 - LinkedIn: [linkedin.com/in/piyush2707](https://www.linkedin.com/in/piyush2707/)
 - GitHub: [@piyush2707](https://github.com/piyush2707)
