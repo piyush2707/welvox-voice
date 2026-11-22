@@ -10,7 +10,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
+
+STT_MODEL = os.environ.get("STT_MODEL", "whisper-large-v3")
+LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
 
 MODES = {
     "english": "Rewrite this dictation as clean, natural English. Remove filler words, fix grammar, keep the meaning.",
@@ -18,18 +22,31 @@ MODES = {
     "hindi": "Rewrite this dictation as clean Hindi in Devanagari script. Remove filler words and fix grammar.",
 }
 
+
+@app.get("/")
+def home():
+    return {"status": "Welvox Voice is running"}
+
+
 @app.post("/dictate")
 async def dictate(file: UploadFile, mode: str = Form("english")):
     audio = await file.read()
+
     raw = client.audio.transcriptions.create(
         file=(file.filename or "audio.webm", audio),
-        model="whisper-large-v3",
+        model=STT_MODEL,
     ).text
+
     clean = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=LLM_MODEL,
         messages=[
-            {"role": "system", "content": MODES.get(mode, MODES["english"]) + " Return only the final text."},
+            {
+                "role": "system",
+                "content": MODES.get(mode, MODES["english"])
+                + " Return only the final text.",
+            },
             {"role": "user", "content": raw},
         ],
     ).choices[0].message.content
+
     return {"raw": raw, "clean": clean}
